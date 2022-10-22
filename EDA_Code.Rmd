@@ -1,0 +1,273 @@
+---
+title: "EDA_Code"
+author: "Rachel & Santiago"
+date: "2022-10-21"
+output: html_document
+---
+
+#Introduction
+#We have been asked by Budweiser to run an analysis on their beers and breweries data that they have collected and answer a few questions.
+#Below we have completed our Exploratory Data Analysis over the datasets provided.
+#We will discuss the amount of breweries per state, median values of ABV and IBU, missing values, and predictions of type of beer.
+#If there are any questions, please reach ask or reach out to our emails.
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(stringi)
+library(ggplot2)
+library(twitteR)
+library(httr)
+library(jsonlite)
+library(tidyverse)
+library(GGally)
+library(mvtnorm)
+library(class)
+library(caret)
+library(e1071)
+
+##QUESTION 1
+#Create a heatmap to show how many breweries are in each state.
+Breweries = read.csv("/Users/santigtz/Desktop/SMU D.S./6306 - Doing Data Science/Unit 8 and 9 Case Study 1/Breweries.csv", header = TRUE)
+
+lookup = data.frame(abb=state.abb, State = state.name)
+
+#Pull only the State and City information out of the dataset to create less clutter.
+#Change the name of State to "abb" to create a foreign key.
+brews = Breweries[,c(3:4)]
+colnames(brews)[2] = "abb"
+brews$abb = str_trim(brews$abb, "left")
+
+#Merge the lookup table and our state tables to create a master copy. This will
+#allow us to create our heatmap later.
+#Change name to State to be able to count the total number of breweries per State.
+brews2 = merge(brews,lookup,by = "abb")
+
+#Use the count function to create a sum total of number of breweries per State.
+#Print the overall dataset brewery map to see if it added correctly.
+brewerymaps = count(brews2,State)
+brewerymaps
+
+#Change brewery to Breweries name
+colnames(brewerymaps)[2] = "Breweries"
+
+#Create a region column that is all lowercase to match all states
+brewerymaps$region <-tolower(brewerymaps$State)
+
+#Remove the first column so we only have state and Region
+brewerymaps = brewerymaps[-1]
+
+#Create a state map based on States.
+states<- map_data("state")
+
+#Merge dataframes brewerymaps and states in order to create 
+# a heat map for breweries by state
+map.df<- merge(states, brewerymaps, by = "region", all.x=T)
+map.df<- map.df[order(map.df$order),]
+
+p<-ggplot(map.df,aes(x=long,y=lat,group=group)) +
+  geom_polygon(aes(fill=Breweries))+
+  geom_path() + xlab("Latitude of State") + ylab("Longitude of State") +
+  scale_fill_gradientn(colours = rev(heat.colors(10)), na.value ="grey90") +
+  ggtitle("Breweries by State") + coord_map()
+p
+```
+
+
+## QUESTION 2
+#Merge datasets by "Bew_ID" and print the head and tail of the combined breweries and beers dataset.
+```{r}
+Beers = read.csv("/Users/santigtz/Desktop/SMU D.S./6306 - Doing Data Science/Unit 8 and 9 Case Study 1/Beers.csv", header = TRUE)
+colnames(Beers)[colnames(Beers)=="Brewery_id"] <- "Brew_ID"
+
+Oktoberfest = merge(Breweries, Beers, by="Brew_ID")
+head(Oktoberfest, n=6)
+tail(Oktoberfest, n=6)
+```
+
+## QUESTION 3
+#How many NA values in ABV and IBU?
+#There are 62 missing NA values for ABV and 1005 missing values
+#for IBU. The ABV values won't have a huge effect on the data but
+#almost half (42%) of IBU is missing. Removing these will be neccessary
+#but will also make our data less accurate.
+```{r}
+colSums(is.na(Oktoberfest))
+```
+
+## QUESTION 4
+#Compute the median ABV by state and plot a bar chart to comapare
+# We removed all NA values from each column to do this analysis.
+#Kentucky has the highest median ABV, followed by DC, Kentucky, West Viriginia and New Mexico. There weren't many more states that were above the average of ABV.
+```{r}
+median_ABV_plot = Oktoberfest %>%
+  filter(!is.na(ABV)) %>%
+  group_by(State) %>%
+  summarize(median=median(ABV),count=n())%>%
+  ggplot(aes(x=State, y = median, fill = factor(if_else(State == " KY","Highest", "All Others")))) +  geom_bar(stat="identity", show.legend = FALSE) + scale_fill_manual(name = "State", values=c("grey50","red")) + ggtitle("Median Alcohol by Volume of Beer by State") + ylab("Median ABV") + geom_hline(yintercept = mean(Oktoberfest$ABV, na.rm = TRUE), color="blue")
+median_ABV_plot
+```
+
+#The median IBU has Maine with the highest one. There are a lot more states that are above the average of the IBU than ABV. 
+```{r}
+median_IBU_plot = Oktoberfest %>%
+  filter(!is.na(IBU)) %>%
+  group_by(State) %>%
+  summarize(median=median(IBU),count=n())%>%
+  ggplot(aes(x=State, y = median, fill = factor(if_else(State == " ME","Highest", "All Others")))) +  geom_bar(stat="identity", show.legend = FALSE) + scale_fill_manual(name = "State", values=c("grey50","red")) + ggtitle("Median International Bitterness Units of Beer by State") + ylab("Median IBU") + geom_hline(yintercept = mean(Oktoberfest$IBU, na.rm = TRUE), color="blue")
+median_IBU_plot
+```
+
+
+## QUESTION 5
+#Which state has the beer with the maximum ABV? Colorado at 12.8%
+#Which state has the most bitter beer (IBU)? Oregon with 138 IBU
+```{r}
+Oktoberfest[which.max(Oktoberfest$ABV),]
+Oktoberfest[which.max(Oktoberfest$IBU),]
+```
+
+
+## QUESTION 6
+#There are 62 missing values or 2.5% of the data data missing ABV values.
+#The ABV has a median of 5.6% and a mean of 5.9% which is pretty average for beer. The beer with the highest was 12.8% in Colorado and the lowest ABV was at 0.1% (which is extremely low). It is interesting that Colorado had the highest ABV because altitude makes you feel the effects of beer more. The data is right skewed because most of the values are centered around 5% but we have a lot of higher perecentages and not a lot of lower ones.
+```{r}
+summary(Oktoberfest$ABV)
+Oktoberfest %>%
+ggplot(aes(x= ABV)) + geom_histogram(color = "Black") +
+  ggtitle("Distribution of Alcohol by Volume in Beers")
+```
+
+## QUESTION 7
+#Is there a relationship between ABV and IBU?
+#Yes, there is a correlation between these values. There is a positive correlation shown in the coefficient being 0.671. This is a moderate correlation. An increase in IBU is associated with an increase (but not caused by) an increase in ABV (and vice versa).
+```{r}
+ggplot(data = Oktoberfest, mapping = aes(x = Oktoberfest$ABV, y = Oktoberfest$IBU))+
+  geom_point() +
+  geom_smooth(method = lm) + xlab("ABV") + ylab("IBU") + ggtitle("Relationship Btwn. ABV and IBU")
+
+Beer_Comparison = Oktoberfest %>% select(ABV, IBU)
+ggpairs(Beer_Comparison)
+```
+
+
+## QUESTION 8
+#Can we predict if a beer is an IPA or an Ale by the ABV and IBU values?
+##Yes we can.
+###The statistical evidence shows an 86% accuracy when fitting a knn model. We use this model by taking a data point in a training set of ABV and IBU values and looking at the 5 closest data points. If the majority of these 5 points are labeled as IPA, then this one will be (and vice versa). The model does this for all data points. We then use a 
+#### We can see using the multiple loops that our k factor of 5 is the most accurate model to predict, which is why we used k=5 to run our model.
+```{r}
+Breweries = read.csv("/Users/santigtz/Desktop/SMU D.S./6306 - Doing Data Science/Unit 8 and 9 Case Study 1/Breweries.csv", header = TRUE)
+Breweries$State = as.factor(Breweries$State)
+dplyr::count(Breweries, State)
+Beers = read.csv("/Users/santigtz/Desktop/SMU D.S./6306 - Doing Data Science/Unit 8 and 9 Case Study 1/Beers.csv", header = TRUE)
+colnames(Beers)[colnames(Beers)=="Brewery_id"] <- "Brew_ID"
+Oktoberfest = merge(Breweries, Beers, by="Brew_ID")
+
+Oktoberfest1 = Oktoberfest %>%
+  mutate(Style = if_else(str_detect(Oktoberfest$Style, "IPA"), "IPA", if_else(str_detect(Oktoberfest$Style, "Ale"), "Ale", "Other"))) %>%
+  filter(!is.na(ABV)) %>%
+  filter(!is.na(IBU)) %>%
+  filter(Style == "IPA" | Style == "Ale") %>%
+  select(ABV, IBU, Style)
+Oktoberfest1$Style = as.factor(Oktoberfest1$Style)
+levels(Oktoberfest1$Style)
+
+set.seed(1)
+splitPerc = .7
+iterations = 100
+numks = 60
+masterAcc = matrix(nrow = iterations, ncol = numks)
+
+for(j in 1:iterations)
+{
+  accs = data.frame(accuracy = numeric(60), k = numeric(60))
+  trainIndices = sample(1:dim(Oktoberfest1)[1],round(splitPerc * dim(Oktoberfest1)[1]))
+  train = Oktoberfest1[trainIndices,]
+  test = Oktoberfest1[-trainIndices,]
+  for(i in 1:numks)
+  {
+    classifications = knn(train[,c(1,2)],test[,c(1,2)],train$Style, prob = TRUE, k = i)
+    table(test$Style,classifications)
+    CM = confusionMatrix(table(test$Style,classifications))
+    masterAcc[j,i] = CM$overall[1]
+  }
+  
+}
+CM
+MeanAcc = colMeans(masterAcc)
+which.max(MeanAcc)
+max(MeanAcc)
+plot(seq(1,numks,1),MeanAcc, type = "l") + abline(v = which.max(MeanAcc), col="blue")
+
+fourfoldplot(CM$table,color = c("cyan", "pink"),
+             conf.level = 0, margin = 1, main = "Predicition of IPAs and Ales")
+
+```
+# Sensitivity for each class is the percent of that class that was classified correctly.
+# Specificity for Class X is the percentage of elements not in that class that were correctly classified as not being in that class (class x).
+
+
+## QUESTION 9
+#After looking to see if we could predict the IPA vs. Ales we decided to do a little research into a few states and what beers are popular there.
+## We looked at Missouri (HQ of Budweiser), Texas, California, and Colorado. These last 3 had the highest breweries of all the states.
+### We looked first by our styles which were IPA, Ale, and Other and then looked at the percentages to evenly compare them. We can see that IPAs and Ales make up a majority of California and Colorado but Other seems to be more popualar in Missouri and Texas.
+### We also broke down Ale into a few more categories (including IPAs) to see if a certain type was more popular. We can see in both the distribution and percentage graphs that IPA is the most popular choice out of all the ales looked at. If you wanted to focus in on marketing a type of ale, IPAs would be it.
+
+## ABV & IBU to determine type of Ale
+```{r}
+Breweries = read.csv("/Users/santigtz/Desktop/SMU D.S./6306 - Doing Data Science/Unit 8 and 9 Case Study 1/Breweries.csv", header = TRUE)
+Breweries$State = as.factor(Breweries$State)
+dplyr::count(Breweries, State)
+Beers = read.csv("/Users/santigtz/Desktop/SMU D.S./6306 - Doing Data Science/Unit 8 and 9 Case Study 1/Beers.csv", header = TRUE)
+colnames(Beers)[colnames(Beers)=="Brewery_id"] <- "Brew_ID"
+Oktoberfest = merge(Breweries, Beers, by="Brew_ID")
+
+## Check for number of different American Ale types
+Oktoberfest2 = Oktoberfest %>%
+  filter(!is.na(ABV)) %>%
+  filter(!is.na(IBU)) %>%
+  filter(!is.na(IBU)) %>%
+  select(ABV, IBU, Style)
+Oktoberfest2$Style = as.factor(Oktoberfest2$Style)
+
+Ale_Freq = table(Oktoberfest2$Style)
+Ale_Freq
+## ^Note American Beer Styles with Frequency Over 30
+
+## Plots Comparing IPA vs Ale in Top-3 States & MO
+Oktoberfest3 = Oktoberfest %>%
+  mutate(Style = if_else(str_detect(Oktoberfest$Style, "IPA"), "IPA", if_else(str_detect(Oktoberfest$Style, "Ale"), "Ale", "Other"))) %>%
+  filter(State == " MO" | State == " TX" | State == " CO" | State == " CA") %>%
+  filter(!is.na(Style)) %>%
+  select(State, Style)
+
+Oktoberfest3 %>% ggplot(aes(x = State, fill = Style)) +
+  geom_bar(position = "dodge") + ggtitle("Distribution of Beer Types per Specific States")+ ylab("Count of Beer Type")
+
+Oktoberfest3 %>% ggplot(aes(x = State, fill = Style)) +
+  geom_bar(position = "fill") + ggtitle("Percentage of Beer Types per Specific States") + ylab("Percentage of Beer Type")
+```
+
+## American Ale Styles with Frequency over 30
+```{r}
+Oktoberfest4 = Oktoberfest %>%
+  mutate(Styles = if_else(str_detect(Oktoberfest$Style, "American Amber / Red Ale"), "Red Ale", if_else(str_detect(Oktoberfest$Style, "American Blonde Ale"), "Blonde Ale", if_else(str_detect(Oktoberfest$Style, "American Brown Ale"), "Brown Ale", if_else(str_detect(Oktoberfest$Style, "American Double / Imperial IPA"), "IPA", if_else(str_detect(Oktoberfest$Style, "American IPA"), "IPA", if_else(str_detect(Oktoberfest$Style, "APA"), "APA", if_else(str_detect(Oktoberfest$Style, "American Pale Wheat Ale"), "Pale Wheat Ale", if_else(str_detect(Oktoberfest$Style, "American Porter"), "American Porter", if_else(str_detect(Oktoberfest$Style, "Fruit / Vegetable Beer"), "Fruit / Vegetable Beer", "Other" )))))))))) %>%
+  filter(!is.na(ABV)) %>%
+  filter(!is.na(IBU)) %>%
+  filter(!is.na(Styles)) %>%
+  filter(Styles != "Other") %>%
+  filter(State == " MO"| State == " TX" | State == " CO" | State == " CA") %>%
+  select(State,Styles)
+Oktoberfest4$Styles = as.factor(Oktoberfest4$Styles)
+levels(Oktoberfest4$Styles)
+table(Oktoberfest4$Styles)
+
+## Plots for Top-4 States
+Oktoberfest4 %>% ggplot(aes(x = State, fill = Styles)) +
+  geom_bar(position = "dodge") + ggtitle("Distribution of Beer Types per Specific States")+ ylab("Count of Beer Type")
+
+Oktoberfest4 %>% ggplot(aes(x = State, fill = Styles)) +
+  geom_bar(position = "fill") + ggtitle("Percentage of Beer Types per Specific States") + ylab("Percentage of Beer Type")
+```
+
